@@ -76,10 +76,12 @@ class AudioContext{
                         size_t pktsize = evbuffer_get_length(audio);
                         evbuffer_remove(audio, data, evbuffer_get_length(audio));
                         pkt = av_packet_alloc();
+                        /*
                         for (int i = 0; i < min(50, (int)pktsize); i++){
                             printf("%02x ", data[i]);
                         }
                         printf("\n");
+                        */
                         pkt->data = data;
                         pkt->size = pktsize;
                         Decode(pkt);
