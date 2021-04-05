@@ -35,7 +35,9 @@ std::atomic<bool> quit(false);
 //g++ LivePlayer.cc -o LiveTest -lavcodec -lavutil -levent -lSDL2 -lswresample -lpthread
 //FIXME: 播放会不定时解码得到的frames为空且持续一段时间,使得localframes与frames不停swap,视频无法播放
 //猜测与网络chunkcallback 或者 解码得到帧的过程 或者 与step的值 或者 当swap后的frames为空时循环swap占用锁使解码线程无法获得锁(证实有关) 有关
-//output3.txt完整的日志
+//FIXME: 音画不同步,视频追音频,没有针对fps设置一帧的播放时长
+//FIXME: 音画不同步问题，当skipframe处值较大，即基本不会跳帧的情况，音频在一开始同步后，会慢慢赶不上，原因是解码的得到的audios为空，也就是解码不及播放（debug.txt）
+//当skipframe较小时，视频较快，音频依旧跟不上
 
 class ReqContext{
     public:
@@ -229,7 +231,7 @@ class DecodeContext{
         std::unique_lock<std::mutex> lock(ctx->m);
         //标志播放结束
         printf("=======request Finish======\n");
-        sleep(10);
+        //sleep(10);
         ctx->frames.push_back(nullptr);
         event_base_loopbreak(ctx->base);
     }
@@ -512,7 +514,7 @@ class DecodeContext{
         SDL_memset(stream, 0, len);
         if (ctx->audios_local.size() == ctx->audioPlayIndex){
             //printf("swap: audios size: %d audio_local size: %d\n", ctx->audios.size(), ctx->audios_local.size());
-            std::unique_lock<std::mutex> lk(ctx->m);
+            std::unique_lock<std::mutex> lk(ctx->atm);//audio thread lock
             ctx->audios_local.clear();
             ctx->audios_local.swap(ctx->audios);
             ctx->audioPlayIndex = 0;
@@ -532,7 +534,10 @@ class DecodeContext{
             evbuffer_free(cur);
             ctx->audios_local[ctx->audioPlayIndex].second = nullptr;
             ctx->audioPlayIndex++;
+        } else { 
+            usleep(10000); //AudioCallback频率过高,会不断加锁,使解码线程无法取到锁
         }
+        //usleep();
     }
 
 
@@ -639,8 +644,9 @@ class VideoContext{
             if (ctx->frames_local.size() <= ctx->localFrameIndex) return;//当frames为空时等下个回调
 
             printf("localFrames_size: %ld, localindex: %d\n", ctx->frames_local.size()/*42*/, ctx->localFrameIndex/*41*/);
-            if (ctx->frames_local[ctx->localFrameIndex]->pkt_pts < ctx->decodeCtx->curPts.load() + 200){
-                printf("skip frame videoIndex: %d\n", ctx->decodeCtx->videoPlayIndex.load());
+            if (ctx->frames_local[ctx->localFrameIndex]->pkt_pts + 600 < ctx->decodeCtx->curPts.load()){
+                printf("skip frame videoIndex: %d pts: %d curPts: %d\n", ctx->decodeCtx->videoPlayIndex.load(), 
+                    ctx->frames_local[ctx->localFrameIndex]->pkt_pts, ctx->decodeCtx->curPts.load());
                 av_frame_free(&(ctx->frames_local[ctx->localFrameIndex]));
                 ctx->localFrameIndex++;
                 ctx->decodeCtx->videoPlayIndex++;
@@ -767,7 +773,7 @@ int main(int argc, char* argv[])
     printf("video first\n");
     auto ev = event_new(base, -1, EV_PERSIST, VideoContext::VideoPlayCallback, &vctx);
 
-    struct timeval timeout = {0, 25000};//us
+    struct timeval timeout = {0, 33000};//us
     event_add(ev, &timeout);
     event_base_dispatch(base);
 
