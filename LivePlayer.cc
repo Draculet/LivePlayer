@@ -33,6 +33,9 @@ extern "C"
 std::atomic<bool> quit(false);
 
 //g++ LivePlayer.cc -o LiveTest -lavcodec -lavutil -levent -lSDL2 -lswresample -lpthread
+//FIXME: 播放会不定时解码得到的frames为空且持续一段时间,使得localframes与frames不停swap,视频无法播放
+//猜测与网络chunkcallback 或者 解码得到帧的过程 或者 与step的值 或者 当swap后的frames为空时循环swap占用锁使解码线程无法获得锁(证实有关) 有关
+//output3.txt完整的日志
 
 class ReqContext{
     public:
@@ -461,7 +464,7 @@ class DecodeContext{
             }
             printf("test: step: %ld\n", ctx->videoDecodeIndex - ctx->videoPlayIndex);
             //FIXME 起步慢?
-            if (ctx->videoDecodeIndex - ctx->videoPlayIndex >= 40 && ctx->videoDecodeIndex - ctx->videoPlayIndex <= 80)
+            if (ctx->videoDecodeIndex - ctx->videoPlayIndex >= 70 && ctx->videoDecodeIndex - ctx->videoPlayIndex <= 80)
                 return;
             auto bufev = evhttp_connection_get_bufferevent(ctx->pullconn);
             if (ctx->videoDecodeIndex - ctx->videoPlayIndex > 80){
@@ -470,7 +473,7 @@ class DecodeContext{
                    printf("test: disable read\n");
                 }
             }
-            if (ctx->videoDecodeIndex - ctx->videoPlayIndex < 40){
+            if (ctx->videoDecodeIndex - ctx->videoPlayIndex < 70){
                 if (!(bufferevent_get_enabled(bufev) & EV_READ)){
                     printf("test: enable read\n");
                     bufferevent_enable(bufev, EV_READ);
@@ -508,7 +511,7 @@ class DecodeContext{
         DecodeContext *ctx = (DecodeContext *)arg;
         SDL_memset(stream, 0, len);
         if (ctx->audios_local.size() == ctx->audioPlayIndex){
-            printf("swap: audios size: %d audio_local size: %d\n", ctx->audios.size(), ctx->audios_local.size());
+            //printf("swap: audios size: %d audio_local size: %d\n", ctx->audios.size(), ctx->audios_local.size());
             std::unique_lock<std::mutex> lk(ctx->m);
             ctx->audios_local.clear();
             ctx->audios_local.swap(ctx->audios);
@@ -627,12 +630,13 @@ class VideoContext{
             if (ctx->frames_local.size() <= ctx->localFrameIndex){
                 ctx->frames_local.clear();
                 std::unique_lock<std::mutex> lock(ctx->decodeCtx->m);
-                printf("video swap, remote_frames: %d\n", ctx->decodeCtx->frames.size());
+                //printf("video swap, remote_frames: %d\n", ctx->decodeCtx->frames.size());
+                if (ctx->decodeCtx->frames.size() == 0) printf(".");
                 ctx->frames_local.swap(ctx->decodeCtx->frames);
                 ctx->localFrameIndex = 0;
             }
-
-            if (ctx->frames_local.size() <= ctx->localFrameIndex) continue;
+            //FIXME 原为continue循环,会占用过多时间片造成解码线程无法获得锁push的问题 FIN
+            if (ctx->frames_local.size() <= ctx->localFrameIndex) return;//当frames为空时等下个回调
 
             printf("localFrames_size: %ld, localindex: %d\n", ctx->frames_local.size()/*42*/, ctx->localFrameIndex/*41*/);
             if (ctx->frames_local[ctx->localFrameIndex]->pkt_pts < ctx->decodeCtx->curPts.load() + 200){
