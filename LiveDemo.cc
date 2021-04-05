@@ -461,12 +461,12 @@ class DecodeContext{
             if (ctx->videoDecodeIndex - ctx->videoPlayIndex > 80){
                 if (bufferevent_get_enabled(bufev) & EV_READ){
                     bufferevent_disable(bufev, EV_READ);
-                   //printf"test: disable read\n");
+                   printf("test: disable read\n");
                 }
             }
             if (ctx->videoDecodeIndex - ctx->videoPlayIndex < 40){
                 if (!(bufferevent_get_enabled(bufev) & EV_READ)){
-                   //printf"test: enable read\n");
+                    printf("test: enable read\n");
                     bufferevent_enable(bufev, EV_READ);
                 }
             }
@@ -502,12 +502,13 @@ class DecodeContext{
         DecodeContext *ctx = (DecodeContext *)arg;
         SDL_memset(stream, 0, len);
         if (ctx->audios_local.size() == ctx->audioPlayIndex){
+            printf("swap: audios size: %d audio_local size: %d\n", ctx->audios.size(), ctx->audios_local.size());
             std::unique_lock<std::mutex> lk(ctx->m);
             ctx->audios_local.clear();
             ctx->audios_local.swap(ctx->audios);
             ctx->audioPlayIndex = 0;
         }
-        printf("local audios index: %d\n", ctx->audioPlayIndex);
+        printf("local audios index: %d localsize: %d\n", ctx->audioPlayIndex, ctx->audios_local.size());
         if (ctx->audioPlayIndex < ctx->audios_local.size()){
             evbuffer *cur = ctx->audios_local[ctx->audioPlayIndex];
             int audioLen = evbuffer_get_length(cur);
@@ -619,7 +620,7 @@ int main(int argc, char* argv[])
             SDL_Event event;
             event.type = LOADPIC_EVENT;
             SDL_PushEvent(&event);
-            SDL_Delay(33);
+            SDL_Delay(15);
         }
     });
     std::thread t3([&ctx]{
